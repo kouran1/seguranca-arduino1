@@ -1,0 +1,137 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Inicializa o LCD no endereço I2C 0x27 com 16 colunas e 2 linhas
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Definição dos pinos
+const int pir_pin = 2;       // Sensor PIR
+const int led_pin = 3;       // LED
+const int buzzer_pin = 4;    // Buzzer
+const int trigPin = 9;       // Pino TRIG do sensor ultrassônico
+const int echoPin = 8;       // Pino ECHO do sensor ultrassônico
+
+// Controle de tempo
+unsigned long ultimoMovimento = 0;
+unsigned long tempoUltimaAtualizacao = 0;
+const unsigned long atrasoDesarme = 5000;  // 5 segundos
+
+// Sensor ultrassônico
+long duracao;
+long distancia;
+const long limiteDistancia = 30;  // Limite 30 cm
+
+// Estado do alarme
+bool alarmeAtivo = false;
+
+void setup() {
+  pinMode(pir_pin, INPUT);
+  pinMode(led_pin, OUTPUT);
+  pinMode(buzzer_pin, OUTPUT);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  Serial.begin(9600);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Sistema Ativado");
+  delay(2000);
+  lcd.clear();
+
+  ultimoMovimento = millis();
+}
+
+void loop() {
+  unsigned long agora = millis();
+
+  // Medição da distância
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  duracao = pulseIn(echoPin, HIGH);
+  distancia = duracao * 0.0344 / 2;
+
+  int pir_state = digitalRead(pir_pin);
+
+  Serial.print("Distancia: ");
+  Serial.println(distancia);
+
+  if (distancia < limiteDistancia && pir_state == HIGH) {
+    if (!alarmeAtivo) {
+      // Ativa alarme apenas se ainda não estava ativo
+      alarmeAtivo = true;
+      ultimoMovimento = agora;
+      Serial.println("Movimento Detectado");
+
+      // Sirene
+      for (int i = 0; i < 10; i++) {
+        digitalWrite(buzzer_pin, HIGH);
+        delay(100);
+        digitalWrite(buzzer_pin, LOW);
+        delay(100);
+      }
+
+      // Pisca o LED 5 vezes
+      for (int i = 0; i < 5; i++) {
+        digitalWrite(led_pin, HIGH);
+        delay(200);
+        digitalWrite(led_pin, LOW);
+        delay(200);
+      }
+
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Movimento!");
+      lcd.setCursor(0, 1);
+      lcd.print("Dist: ");
+      lcd.print(distancia);
+      lcd.print("cm");
+      delay(2000); // Mantém a mensagem por 2 segundos
+    } else {
+      // Movimento contínuo, mas alarme já ativado
+      digitalWrite(led_pin, HIGH);
+    }
+
+  } else if (alarmeAtivo && (agora - ultimoMovimento < atrasoDesarme)) {
+    // Ainda no tempo de alarme ativo
+    digitalWrite(led_pin, HIGH);
+
+    if (agora - tempoUltimaAtualizacao >= 2000) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Movimento Recente");
+      lcd.setCursor(0, 1);
+      lcd.print("Aguardando...");
+      tempoUltimaAtualizacao = agora;
+    }
+
+  } else {
+    // Sem movimento recente
+    digitalWrite(led_pin, LOW);
+    digitalWrite(buzzer_pin, LOW);
+    alarmeAtivo = false;
+
+    unsigned long tempoEmSegundos = (agora - ultimoMovimento) / 1000;
+    unsigned int minutos = tempoEmSegundos / 60;
+    unsigned int segundos = tempoEmSegundos % 60;
+
+    if (agora - tempoUltimaAtualizacao >= 2000) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Aguardando...");
+      lcd.setCursor(0, 1);
+      lcd.print("Sem mov: ");
+      lcd.print(minutos);
+      lcd.print("m ");
+      lcd.print(segundos);
+      lcd.print("s");
+      tempoUltimaAtualizacao = agora;
+    }
+  }
+
+  delay(200); // Evita leitura excessiva
+}
